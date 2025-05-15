@@ -5,69 +5,95 @@ import 'dart:typed_data';
 /// 解码器
 const varint = VarintCodec();
 
-/// 使用[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)编码[bytes]
+/// 一个支持有符号[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)
+/// 的编码器和解码器
+const varintSigned = VarintCodec.signed();
+
+/// 使用无符号[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)编码[bytes]
 List<int> varintEncode(List<int> bytes) => varint.encode(bytes);
 
-/// 使用[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)解码[bytes]
+/// 使用支持有符号[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)编码[bytes]
+List<int> varintSignedEncode(List<int> bytes) => varintSigned.encode(bytes);
+
+/// 使用无符号[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)解码[bytes]
 List<int> varintDecode(List<int> bytes) => varint.decode(bytes);
 
-/// 计算单个[val]编码为[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)
-/// 所需的字节数量
-int varintEncodeSize(int val) => _encodeVarintSize(val);
+/// 使用支持有符号[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)解码[bytes]
+List<int> varintSignedDecode(List<int> bytes) => varintSigned.decode(bytes);
 
+/// [varint](https://en.wikipedia.org/wiki/Variable-length_quantity)编解码器
 class VarintCodec extends Codec<List<int>, List<int>> {
-  const VarintCodec();
+  const VarintCodec() : _signed = false;
+
+  const VarintCodec.signed() : _signed = true;
+
+  /// 是否支持有符号
+  final bool _signed;
 
   @override
-  Converter<List<int>, List<int>> get encoder => const VarintEncoder();
+  Converter<List<int>, List<int>> get encoder {
+    return _signed ? const VarintEncoder(signed: true) : const VarintEncoder();
+  }
 
   @override
-  Converter<List<int>, List<int>> get decoder => const VarintDecoder();
+  Converter<List<int>, List<int>> get decoder {
+    return _signed ? const VarintDecoder(signed: true) : const VarintDecoder();
+  }
 }
 
+/// [varint](https://en.wikipedia.org/wiki/Variable-length_quantity)编码器
 class VarintEncoder extends Converter<List<int>, List<int>> {
-  const VarintEncoder();
+  const VarintEncoder({this.signed = false});
+
+  /// 是否支持有符号
+  final bool signed;
 
   @override
   List<int> convert(List<int> input) {
     final buffer = BytesBuilder(copy: false);
     for (var val in input) {
-      _varintEncodeOne(val, buffer);
+      _varintEncodeOne(val, buffer, signed: signed);
     }
     return buffer.takeBytes();
   }
 
   @override
   Sink<List<int>> startChunkedConversion(Sink<List<int>> sink) {
-    return _VarintEncodeSink(sink);
+    return _VarintEncodeSink(sink, signed);
   }
 }
 
+/// [varint](https://en.wikipedia.org/wiki/Variable-length_quantity)解码器
 class VarintDecoder extends Converter<List<int>, List<int>> {
-  const VarintDecoder();
+  const VarintDecoder({this.signed = false});
+
+  /// 是否支持有符号
+  final bool signed;
 
   @override
   List<int> convert(List<int> bytes) {
-    return _varintDecode(bytes);
+    return _varintDecode(bytes, signed: signed);
   }
 
   @override
   Sink<List<int>> startChunkedConversion(Sink<List<int>> sink) {
-    return _VarintDecodeSink(sink);
+    return _VarintDecodeSink(sink, signed);
   }
 }
 
 class _VarintEncodeSink extends ByteConversionSinkBase {
-  _VarintEncodeSink(this._sink);
+  _VarintEncodeSink(this._sink, this.signed);
 
   final Sink<List<int>> _sink;
+
+  final bool signed;
 
   final _buf = BytesBuilder(copy: false);
 
   @override
   void add(List<int> chunk) {
     for (var val in chunk) {
-      _varintEncodeOne(val, _buf);
+      _varintEncodeOne(val, _buf, signed: signed);
     }
     _sink.add(_buf.takeBytes());
   }
@@ -79,13 +105,15 @@ class _VarintEncodeSink extends ByteConversionSinkBase {
 }
 
 class _VarintDecodeSink extends ByteConversionSink {
-  const _VarintDecodeSink(this._sink);
+  const _VarintDecodeSink(this._sink, this.signed);
 
   final Sink<List<int>> _sink;
 
+  final bool signed;
+
   @override
   void add(List<int> bytes) {
-    _sink.add(_varintDecode(bytes));
+    _sink.add(_varintDecode(bytes, signed: signed));
   }
 
   @override
@@ -94,80 +122,43 @@ class _VarintDecodeSink extends ByteConversionSink {
   }
 }
 
-/// 对[val]编码为[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)
+/// 对[value]编码为[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)
 /// 并将结果添加到[buffer]
 @pragma('vm:prefer-inline')
-void _varintEncodeOne(int val, BytesBuilder buffer) {
-  assert(val >= 0, 'Negative numbers do not support variable int.');
-  while (val >= 0x80) {
-    buffer.addByte(0x80 | val & 0x7F);
-    val >>= 7;
+void _varintEncodeOne(int value, BytesBuilder buffer, {bool signed = false}) {
+  assert(value >= 0 || signed, 'Negative numbers do not support variable int.');
+
+  if (signed) value = zigZagEncode(value);
+
+  while (value >= 0x80) {
+    buffer.addByte(0x80 | (value & 0x7F));
+    value >>= 7;
   }
-  buffer.addByte(val);
+  buffer.addByte(value);
 }
 
 /// 对[Uint8List]解码到[List<int>]
 @pragma('vm:prefer-inline')
-List<int> _varintDecode(List<int> bytes) {
-  if (bytes.isEmpty) return const [];
+List<int> _varintDecode(List<int> bytes, {bool signed = false}) {
+  final result = <int>[];
+  int value = 0;
+  int shift = 0;
 
-  final decoded = <int>[];
-  for (int b = 0, i = 0, val = 0; i < bytes.length;) {
-    do {
-      b = bytes[i++];
-      val = (b & 0x7F);
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 7;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 14;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 21;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 28;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 35;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 42;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 49;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x7F) << 56;
-      if (b < 0x80) {
-        break;
-      }
-      b = bytes[i++];
-      val |= (b & 0x01) << 63;
-      if (b < 0x80) {
-        break;
-      }
-    } while (false);
-    decoded.add(val);
+  for (int i = 0; i < bytes.length; i++) {
+    final byte = bytes[i];
+    value |= (byte & 0x7F) << shift;
+
+    if ((byte & 0x80) == 0) {
+      if (signed) value = zigZagDecode(value);
+      result.add(value);
+      value = 0;
+      shift = 0;
+    } else {
+      shift += 7;
+    }
   }
-  return decoded;
+
+  return result;
 }
 
 /// 编码[val]为[varint](https://en.wikipedia.org/wiki/Variable-length_quantity)所
@@ -180,4 +171,20 @@ int _encodeVarintSize(int val) {
     val >>= 7;
   }
   return s;
+}
+
+/// ZigZag encoding that maps signed integers with a small absolute value
+/// to unsigned integers with a small (positive) values. Without this,
+/// encoding negative values using Varint would use up 9 or 10 bytes.
+///
+/// if x >= 0, encodeZigZag(x) == 2*x
+/// if x <  0, encodeZigZag(x) == -2*x - 1
+@pragma('vm:prefer-inline')
+int zigZagEncode(int n) {
+  return (n << 1) ^ (n >> 63);
+}
+
+@pragma('vm:prefer-inline')
+int zigZagDecode(int n) {
+  return (n >> 1) ^ -(n & 1);
 }

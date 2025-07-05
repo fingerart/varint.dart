@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:varint/src/varint_codec.dart';
 import 'package:varint/varint.dart';
 

@@ -1,4 +1,4 @@
-[![pub package](https://img.shields.io/pub/v/varint.dart.svg)](https://pub.dartlang.org/packages/varint.dart)
+[![pub package](https://img.shields.io/pub/v/varint.svg)](https://pub.dartlang.org/packages/varint)
 [![GitHub stars](https://img.shields.io/github/stars/fingerart/varint.dart)](https://github.com/fingerart/varint.dart/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/fingerart/varint.dart)](https://github.com/fingerart/varint.dart/network)
 [![GitHub license](https://img.shields.io/github/license/fingerart/varint.dart)](https://github.com/fingerart/varint.dart/blob/main/LICENSE)

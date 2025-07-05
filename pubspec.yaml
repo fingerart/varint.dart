@@ -1,6 +1,6 @@
 name: varint
 description: "A Dart library for encoding and decoding variable-length quantities (VLQ)."
-version: 0.0.1+1
+version: 0.0.1+2
 homepage: https://github.com/fingerart/varint.dart
 
 topics:
